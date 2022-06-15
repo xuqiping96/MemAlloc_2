@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <stdlib.h>
 
-#include "memory.h"
+#include "../src/memory.h"
 
 #define DATA 0x12345678
 

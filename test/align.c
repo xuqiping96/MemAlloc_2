@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-#include "memory.h"
+#include "../src/memory.h"
 
 int main()
 {

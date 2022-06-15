@@ -1,23 +1,8 @@
-/**
- * @file memory.h
- * @author 智识之道 (binary@techbootcamp)
- * @brief 内存分配
- * @version 0.1
- * @date 2022-01-18
- *
- * @copyright Copyright (c) 2022
- *
- */
-///////////////////////////////////////////////////////////////////////////////
-//头文件区域
-//其他头文件自行添加
-
 #include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
 
 #include "memory.h"
-
-///////////////////////////////////////////////////////////////////////////////
-//结构体区域
 
 /**
  * @brief 内存结构体
@@ -31,14 +16,12 @@ typedef struct
     unsigned size;
 } MemoryHeader;
 
-///////////////////////////////////////////////////////////////////////////////
-//变量区域
-
 //设定的算法
 enum Algorithm algo;
 
 //内存块头
 MemoryHeader *memory_header;
+void *allocated_memory;
 
 ///////////////////////////////////////////////////////////////////////////////
 //函数声明区域
@@ -95,7 +78,7 @@ void *get_data(MemoryHeader *current);
 /**
  * @brief 从数据指针获取到首部指针
  *
- * @param current 当前内存块首部
+ * @param current 当前内存块数据指针
  * @return MemoryHeader* 返回首部指针
  */
 MemoryHeader *get_header_from_data(void *current);
@@ -143,89 +126,228 @@ void coalesce(MemoryHeader *current, MemoryHeader *last);
 
 int is_allow_allocate(MemoryHeader *current, int size)
 {
-    printf("TODO: is_allow_allocate\n");
-    return 0;
+    if(size % 4 == 0)
+    {
+        return current->size >= size;
+    } else
+    {
+        size = size + (4 - size % 4);
+
+        return current->size >= size;
+    }
 }
 
 int is_allocated(MemoryHeader *current)
 {
-    printf("TODO: is_allocated\n");
-    return 0;
+    if((uintptr_t)current & 1)
+    {
+        return 1;
+    } else
+    {
+        return 0;
+    }
 }
 
 int is_free(MemoryHeader *current)
 {
-    printf("TODO: is_free\n");
-    return 0;
+    if((uintptr_t)current & 1)
+    {
+        return 0;
+    } else
+    {
+        return 1;
+    }
 }
 
 MemoryHeader *get_next_header(MemoryHeader *current)
 {
-    printf("TODO: get_next_header\n");
-    return NULL;
+    current = (uintptr_t)current & ~1;
+
+    return current->packed;
 }
 
 int get_size(MemoryHeader *current)
 {
-    printf("TODO: get_size\n");
-    return 0;
+    int size = current->size;
+    if(size % 4 == 0)
+    {
+        return size;
+    } else
+    {
+        return size + (4 - size % 4);
+    }
 }
 
 void *get_data(MemoryHeader *current)
 {
-    printf("TODO: get_data\n");
-    return NULL;
+    return (void *)((uintptr_t)current & ~1) + sizeof(MemoryHeader);
 }
 
 MemoryHeader *get_header_from_data(void *current)
 {
-    printf("TODO: get_header_from_data\n");
-    return NULL;
+    return (void *)current - sizeof(MemoryHeader);
 }
 
 void set_next_packet(MemoryHeader *current, int size)
 {
-    printf("TODO: set_next_packet\n");
+    MemoryHeader *next_packet;
+    int allocated_size;
+    if(size % 4 == 0)
+    {
+        allocated_size = size;
+    } else {
+        allocated_size = size + (4 - size % 4);
+    }
+    //判断是否有空间设置下一个packet
+    if((current->size - allocated_size) >= (sizeof(MemoryHeader) + 4))
+    {
+        next_packet = (void *)current + sizeof(MemoryHeader) + allocated_size;
+        next_packet->size = current->size - allocated_size - sizeof(MemoryHeader);
+
+        current->packed = next_packet;
+    } else
+    {
+        current->packed = NULL;
+    }
 }
 
 void set_allocated(MemoryHeader *current)
 {
-    printf("TODO: set_allocated\n");
+    MemoryHeader *cur_header = memory_header;
+    MemoryHeader *prev_header = NULL;
+
+    while(cur_header != current)
+    {
+        prev_header = cur_header;
+        cur_header = get_next_header(cur_header);
+    }
+
+    if(prev_header == NULL)
+    {
+        memory_header = (uintptr_t)memory_header | 1;
+    } else
+    {
+        prev_header->packed = (uintptr_t)(prev_header->packed) | 1;
+    }
 }
 
 void set_free(MemoryHeader *current)
 {
-    printf("TODO: set_free\n");
+    int size;
+
+    if(current == NULL)
+    {
+        memory_header = (uintptr_t)memory_header & ~1;
+        size = get_size(memory_header);
+        set_size(memory_header, size);
+    } else
+    {
+        current->packed = (uintptr_t)(current->packed) & ~1;
+        current = current->packed;
+        size = get_size(current);
+        set_size(current, size);
+    }
 }
 
 void set_size(MemoryHeader *current, int size)
 {
-    printf("TODO: set_size\n");
+    current->size = size;
 }
 
 void coalesce(MemoryHeader *current, MemoryHeader *last)
 {
-    printf("TODO: coalesce\n");
+    int size = last->size + sizeof(MemoryHeader) + current->size;
+    set_size(last, size);
+    last->packed = current->packed;
 }
 
 int mem_init(int size, enum Algorithm selectAlgo)
 {
-    printf("TODO: mem_init\n");
-    return -1;
+    algo = selectAlgo;
+    allocated_memory = malloc(size + 1);
+    if(allocated_memory == NULL)
+    {
+        return -1;
+    }
+
+    memory_header = (uintptr_t)allocated_memory + (4 - (uintptr_t)allocated_memory % 4);
+    memory_header->size = size - sizeof(MemoryHeader);
+    memory_header->packed = NULL;
+    memory_header  = (uintptr_t)memory_header & ~1;
+
+    return 0;
 }
 
 void *mem_alloc(int size)
 {
-    printf("TODO: mem_alloc\n");
+    MemoryHeader *cur_header = memory_header;
+    //遍历header，判断是否空闲，然后判断是否允许分配
+    switch(algo)
+    {
+        case FIRST_FIT:
+            while(cur_header != NULL)
+            {
+                if(is_free(cur_header))
+                {
+                    if(is_allow_allocate(cur_header, size))
+                    {
+                        set_next_packet(cur_header, size);
+                        set_size(cur_header, size);
+                        set_allocated(cur_header);
 
-    return NULL;
+                        return (void *)cur_header + sizeof(MemoryHeader);
+                    } else
+                    {
+                        cur_header = get_next_header(cur_header);
+                    }
+                } else
+                {
+                    cur_header = get_next_header(cur_header);
+                }
+            }
+
+            return NULL;
+
+        default:
+            return NULL;
+
+    }
 }
 
 int mem_free(void *data)
 {
-    printf("TODO: mem_free\n");
+    MemoryHeader *cur_header = memory_header;
+    MemoryHeader *cur_real_addr = (uintptr_t)cur_header & ~1;
+    MemoryHeader *prev_header = NULL;
+    //遍历首部，找到属于data的首部，将分配位设为0
+    while((void *)cur_real_addr + sizeof(MemoryHeader) != data)
+    {
+        prev_header = cur_header;
+        cur_header = cur_real_addr->packed;
+        cur_real_addr = (uintptr_t)cur_header & ~1;;
+    }
 
-    return -1;
+    if(get_header_from_data(data) != cur_real_addr)
+    {
+        return -1;
+    }
+
+    set_free(prev_header);
+    cur_header = cur_real_addr;
+
+    //如果当前首部不是第一个，且如果前一个首部的分配位也为0，则合并
+    if((prev_header != NULL) && is_free(prev_header))
+    {
+        coalesce(cur_header, prev_header);
+        cur_header = prev_header;
+    }
+    //如果当前不是最后一个首部，再判断下一个首部是否为0，如果是，则合并
+    if((cur_header->packed != NULL) && is_free(cur_header->packed))
+    {
+        coalesce(cur_header->packed, cur_header);
+    }
+
+    return 0;
 }
 
 void mem_dump()
