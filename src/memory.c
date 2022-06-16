@@ -4,6 +4,10 @@
 
 #include "memory.h"
 
+#define SPLIT_1 "********************************************Memory Dump********************************************\n"
+#define SPLIT_2 "        id              header                data                 end  length  size  padding  used\n"
+#define SPLIT_3 "***************************************************************************************************\n"
+
 /**
  * @brief 内存结构体
  *
@@ -168,7 +172,10 @@ MemoryHeader *get_next_header(MemoryHeader *current)
 
 int get_size(MemoryHeader *current)
 {
-    int size = current->size;
+    int size;
+
+    current = (uintptr_t)current & ~1;
+    size = current->size;
     if(size % 4 == 0)
     {
         return size;
@@ -203,11 +210,9 @@ void set_next_packet(MemoryHeader *current, int size)
     {
         next_packet = (void *)current + sizeof(MemoryHeader) + allocated_size;
         next_packet->size = current->size - allocated_size - sizeof(MemoryHeader);
+        next_packet->packed = current->packed;
 
         current->packed = next_packet;
-    } else
-    {
-        current->packed = NULL;
     }
 }
 
@@ -227,6 +232,7 @@ void set_allocated(MemoryHeader *current)
         memory_header = (uintptr_t)memory_header | 1;
     } else
     {
+        prev_header = (uintptr_t)prev_header & ~1;
         prev_header->packed = (uintptr_t)(prev_header->packed) | 1;
     }
 }
@@ -242,6 +248,7 @@ void set_free(MemoryHeader *current)
         set_size(memory_header, size);
     } else
     {
+        current = (uintptr_t)current & ~1;
         current->packed = (uintptr_t)(current->packed) & ~1;
         current = current->packed;
         size = get_size(current);
@@ -287,19 +294,13 @@ void *mem_alloc(int size)
         case FIRST_FIT:
             while(cur_header != NULL)
             {
-                if(is_free(cur_header))
+                if(is_free(cur_header) && is_allow_allocate(cur_header, size))
                 {
-                    if(is_allow_allocate(cur_header, size))
-                    {
-                        set_next_packet(cur_header, size);
-                        set_size(cur_header, size);
-                        set_allocated(cur_header);
+                    set_next_packet(cur_header, size);
+                    set_size(cur_header, size);
+                    set_allocated(cur_header);
 
-                        return (void *)cur_header + sizeof(MemoryHeader);
-                    } else
-                    {
-                        cur_header = get_next_header(cur_header);
-                    }
+                    return (void *)cur_header + sizeof(MemoryHeader);   
                 } else
                 {
                     cur_header = get_next_header(cur_header);
@@ -320,11 +321,17 @@ int mem_free(void *data)
     MemoryHeader *cur_real_addr = (uintptr_t)cur_header & ~1;
     MemoryHeader *prev_header = NULL;
     //遍历首部，找到属于data的首部，将分配位设为0
-    while((void *)cur_real_addr + sizeof(MemoryHeader) != data)
+    while(cur_header != NULL)
     {
-        prev_header = cur_header;
-        cur_header = cur_real_addr->packed;
-        cur_real_addr = (uintptr_t)cur_header & ~1;;
+        if((void *)cur_real_addr + sizeof(MemoryHeader) != data)
+        {
+            prev_header = cur_header;
+            cur_header = cur_real_addr->packed;
+            cur_real_addr = (uintptr_t)cur_header & ~1;
+        } else
+        {
+            break;
+        } 
     }
 
     if(get_header_from_data(data) != cur_real_addr)
@@ -352,5 +359,57 @@ int mem_free(void *data)
 
 void mem_dump()
 {
-    printf("TODO: mem_dump\n");
+    int id = 1;
+    int length;
+    int size;
+    int padding;
+    int used;
+    int total_size = 0;
+    int total_padding = 0;
+    int total_used = 0;
+    int total_free = 0;
+    MemoryHeader *cur_header = memory_header;
+    void *data;
+    void *end;
+
+    printf(SPLIT_1);
+    printf(SPLIT_2);
+
+    while((void *)((uintptr_t)cur_header & ~1) != NULL)
+    {
+
+        if(is_allocated(cur_header))
+        {
+            used = 1;
+            cur_header = (uintptr_t)cur_header & ~1;
+
+            size = cur_header->size;
+            padding = get_size(cur_header) - size;
+
+            total_size += size;
+            total_padding += padding;
+            total_used += (sizeof(MemoryHeader) + size + padding);
+        } else
+        {
+            used = 0;
+
+            size = cur_header->size;
+            padding = 0;
+
+            total_used += sizeof(MemoryHeader);
+            total_free += size;
+        }
+
+        data = (void *)cur_header + sizeof(MemoryHeader);
+        end = data + size + padding;
+        length = sizeof(MemoryHeader) + size + padding;
+ 
+        printf("%10d  %18p  %18p  %18p  %6d  %4d  %7d  %4d\n", id, cur_header, data, end, length, size, padding, used);
+        
+        cur_header = get_next_header(cur_header);
+        ++id;
+    }
+
+    printf("Total size = %d, padding = %d, free = %d, used = %d\n", total_size, total_padding, total_free, total_used);
+    printf(SPLIT_3);
 }
